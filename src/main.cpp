@@ -5,7 +5,7 @@
 #include <BLEUtils.h> // Utilities for BLE operations
 #include <VescUart.h> // Library to interface with VESC over UART
 
-// Define UUIDs for BLE service and characteristics, unique identifiers for BLE communication
+// Define UUIDs for BLE service and characteristics, uni1que identifiers for BLE communication
 #define SERVICE_UUID "82f736e2-0115-4a37-9498-f357806b45d8" // UUID for the main BLE service
 #define BATTERY_PCT_UUID "b5fa25e0-884e-475a-9a70-a286b88df9f5" // UUID for battery percentage characteristic
 #define BATTERY_WH_UUID "ec76c264-0bc4-4eaa-b32e-01c723e9cfe3" // UUID for battery watt-hours characteristic
@@ -16,6 +16,8 @@ VescUart UART; // Create an instance of the VescUart class to communicate with t
 
 // Pointers for BLE characteristics
 BLECharacteristic *pBattPct, *pBattWh, *pRpm, *pPrdRange;
+
+HardwareSerial uartSerial(1);
 
 void setup() {
   Serial.begin(115200); // Initialize serial communication at 115200 baud rate for debugging
@@ -44,30 +46,32 @@ void setup() {
 
   Serial.println("Characteristic defined! Now you can read it on your phone!"); // Debug message indicating setup completion
 
-  UART.setSerialPort(&Serial); // Associate the VescUart instance with the serial port for communication
+  uartSerial.begin(11520, SERIAL_8N1, 16, 17); // Initialize UART serial communication with VESC (RX, TX, RTS, CTS
+  UART.setSerialPort(&uartSerial); // Associate the VescUart instance with the serial port for communication
 }
-
+float t = 0;
 void loop() {
-  float x = 0; // Placeholder value for updating VESC data, not used effectively in this snippet
-
-  // Placeholder for updating UART data, values are not being updated from actual readings
-  UART.data.rpm = x;
-  UART.data.wattHours = x;
-  UART.data.inpVoltage = x;
-  UART.data.tachometerAbs = x;
+  t += 0.01;
+  int x = (int)(60 * sin(t));
+  UART.setRPM(x);
+  UART.nunchuck.valueX = x;
 
   // Attempt to read VESC values and update BLE characteristics if successful
   if (UART.getVescValues()) {
-    pBattPct->setValue((uint8_t *)&UART.data.ampHours, 4); // Set battery percentage from VESC data
-    pBattWh->setValue((uint8_t *)&UART.data.wattHours, 4); // Set battery watt-hours from VESC data
-    pRpm->setValue((uint8_t *)&UART.data.rpm, 4); // Set RPM from VESC data
-    pPrdRange->setValue((uint8_t *)&UART.data.tachometerAbs, 4); // Set predicted range from VESC data
+    pBattPct->setValue(0); // Set battery percentage from VESC data
+    pBattWh->setValue(UART.data.ampHoursCharged); // Set battery watt-hours from VESC data
+    pRpm->setValue(UART.data.rpm); // Set RPM from VESC data
+    // pPrdRange->setValue(UART.data.tachometerAbs); // Set predicted range from VESC data
 
     // Notify connected BLE clients of the updated values
     pBattPct->notify();
     pBattWh->notify();
     pRpm->notify();
-    pPrdRange->notify();
+    Serial.println(UART.data.rpm);
+    Serial.println(UART.data.inpVoltage);
+    Serial.println(UART.data.ampHours);
+    Serial.println(UART.data.tachometerAbs);
+    // pPrdRange->notify();
   } else {
     Serial.println("Failed to get data!"); // Debug message if reading VESC values fails
   }
