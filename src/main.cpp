@@ -4,7 +4,8 @@
 #include <BLEServer.h> // Specific BLE server functionalities
 #include <BLEUtils.h> // Utilities for BLE operations
 #include <VescUart.h> // Library to interface with VESC over UART
-#include <ArduinoSTL.h>
+// #include <ArduinoSTL.h>
+// #include <deque>
 
 // Define UUIDs for BLE service and characteristics, uni1que identifiers for BLE communication
 #define SERVICE_UUID "82f736e2-0115-4a37-9498-f357806b45d8"
@@ -18,6 +19,8 @@
 #define WHEEL_DIAMETER 0.1524 // in meter
 #define BAT_MIN_VOLTAGE 33 // Empty
 #define BAT_MAX_VOLTAGE 42 // Full
+#define WINDOW_TIME 30 // seconds
+#define WINDOW_SIZE 20 // samples
 
 VescUart UART; // Create an instance of the VescUart class to communicate with the VESC
 
@@ -54,8 +57,6 @@ void setupBle(){
   advertiseBle();
 }
 
-
-
 struct sb_data{
   float speed;
   float batteryPct;
@@ -63,7 +64,13 @@ struct sb_data{
   float distanceTraveled;
 } state;
 
-std::deque<float> speedQueue;
+struct distanceData{
+  float distance;
+  float time;
+};
+
+distanceData speedQueue[WINDOW_SIZE];
+int l=0, r=-1, cnt=0;
 
 void setup() {
   // Serial2.begin(115200, SERIAL_8N1, 3, 1);
@@ -90,79 +97,76 @@ void setup() {
 float t = 0;
 
 bool fetchVescData(){
-  Serial.print("R");
+  // Serial.print("R");
   return UART.getVescValues();
 }
 
-bool fetchDummyData(){
-  // Serial.print("E");
-  // UART.data.rpm = 5;
-  // UART.data.inpVoltage = 40;
-  // UART.data.tachometerAbs = 1000;
-  return true;
-}
+float bootupPct = -1;
 
 float getBatteryPercentage() {
   return ((UART.data.inpVoltage - BAT_MIN_VOLTAGE) / (BAT_MAX_VOLTAGE - BAT_MIN_VOLTAGE)) * 100;
 }
 
-float getSpeed() {
-  int rpm = (UART.data.rpm) / (POLES / 2);
-        
-  // We do not need to pay attention to the translation because it is 1 to 1.
-  float velocity = abs(rpm) * PI * (60.0 / 1000.0) * WHEEL_DIAMETER;
-
-  if (velocity > 99) {
-    return 99.0;
-  }
-  return velocity;
-}
+float currentSpeed = -1;
 
 float getTrip() {
   float tach = (UART.data.tachometerAbs) / (POLES * 3.0);
-        
-  // We do not need to pay attention to the translation because it is 1 to 1.
-  float distance = tach * PI * (1.0/1000.0) * WHEEL_DIAMETER;
 
-  if (distance > 99) {
-    return 99.0;
-  }
+  // We do not need to pay attention to the translation because it is 1 to 1.
+  float distance = tach * PI * WHEEL_DIAMETER;
   return distance;
 }
 
+void processSpeedQueue(){
+  auto dist = getTrip();
+  auto time = millis() / 1000.0f;
+  r = (r + 1) % WINDOW_SIZE;
+  speedQueue[r] = {dist, time};
+  cnt++;
+
+  while(speedQueue[r].time - speedQueue[l].time > WINDOW_TIME || cnt > WINDOW_SIZE){
+    l = (l + 1) % WINDOW_SIZE;
+    cnt--;
+  }
+
+  float distance = speedQueue[r].distance - speedQueue[l].distance;
+  float dtime = speedQueue[r].time - speedQueue[l].time;
+  state.speed = distance / dtime;
+  currentSpeed = state.speed;
+}
 
 void updateState(){
-  if(fetchVescData() || fetchDummyData()){
-    state.speed = getSpeed();
+  if(fetchVescData()){
     state.batteryPct = getBatteryPercentage();
+    if(bootupPct == -1){
+      bootupPct = state.batteryPct;
+    }
     state.distanceTraveled = getTrip();
 
-    auto distPpct = state.distanceTraveled / state.batteryPct;
-    state.distanceRemaining = distPpct * (100-state.batteryPct);
-
-    // Serial.print(" Speed: ");
-    // Serial.print(state.speed);
-
-    // Serial.print(" Batt Pct: ");
-    // Serial.print(state.batteryPct);
-
-    // Serial.print(" Dist Tr: ");
-    // Serial.print(state.distanceTraveled);
-
-    // Serial.print(" Dist Rem: ");
-    // Serial.print(state.distanceRemaining);
-
-    // Serial.println();
+    auto pctDelta = bootupPct - state.batteryPct;
+    pctDelta = max(0.01f, pctDelta);
+    auto distPpct = state.distanceTraveled / pctDelta;
+    state.distanceRemaining = distPpct * state.batteryPct;
+    processSpeedQueue();
+    state.speed = currentSpeed;
   }
 }
 
 void loop() {
   updateState();
+  pSpeed->setValue(currentSpeed);
+  pBattPct->setValue(state.batteryPct);
+  pDistRem->setValue(state.distanceRemaining);
+  // float v = getBatteryPercentageBootup();
+  // pDistRem->setValue(v);
 
-  pSpeed->setValue(state.speed); // Set battery percentage from VESC data
-  pBattPct->setValue(state.batteryPct); // Set battery watt-hours from VESC data
-  pDistRem->setValue(state.distanceRemaining); // Set RPM from VESC data
-  pDistTr->setValue(state.distanceTraveled); // Set predicted range from VESC data
+  pDistTr->setValue(state.distanceTraveled);
+
+  // float f1 = UART.data.tachometer * 1000;
+  // float f2 = UART.data.tachometerAbs * 1000;
+  // pDistRem->setValue(f1);
+  // pDistTr->setValue(f2);
+
   pSpeed->notify();
   pBattPct->notify();
   pDistRem->notify();
