@@ -4,6 +4,13 @@
 #include <BLEServer.h> // Specific BLE server functionalities
 #include <BLEUtils.h> // Utilities for BLE operations
 #include <VescUart.h> // Library to interface with VESC over UART
+#include <FastLED.h>
+
+#define NUM_LEDS 100 // Change this to the number of LEDs in your strip
+#define LED_PIN 18   // Choose the GPIO pin connected to the LED strip data pin
+
+CRGB leds[NUM_LEDS];
+
 // #include <ArduinoSTL.h>
 // #include <deque>
 
@@ -73,6 +80,8 @@ distanceData speedQueue[WINDOW_SIZE];
 int l=0, r=-1, cnt=0;
 
 void setup() {
+  FastLED.addLeds<WS2813, LED_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.show();
   // Serial2.begin(115200, SERIAL_8N1, 3, 1);
   Serial.begin(115200); // Initialize serial communication at 115200 baud rate for debugging
   // Serial.println("Starting BLE work!"); // Debug print to indicate the start of BLE setup
@@ -152,6 +161,22 @@ void updateState(){
   }
 }
 
+void updateLED(){
+  int ledIndex = (state.batteryPct / 100) * NUM_LEDS;
+  for(int i=0; i<NUM_LEDS; i++){
+    if(i < ledIndex){
+      CRGB color;
+      float range = 80;
+
+      color.setHSV(123 + range * max(min(sin((((float)i) / NUM_LEDS * 5 + millis() / 300.0f)),0.7f),-0.7f), 255, 255);
+      leds[i] = color;
+    }else{
+      leds[i] = CRGB::Red;
+    }
+  }
+  FastLED.show();
+}
+
 void loop() {
   updateState();
   pSpeed->setValue(currentSpeed);
@@ -171,6 +196,8 @@ void loop() {
   pBattPct->notify();
   pDistRem->notify();
   pDistTr->notify();
+
+  updateLED();
 
   delay(50); // Short delay to throttle loop execution speed
 }
