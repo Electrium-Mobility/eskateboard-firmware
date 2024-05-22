@@ -6,7 +6,7 @@
 #include <VescUart.h> // Library to interface with VESC over UART
 #include <FastLED.h>
 
-#define NUM_LEDS 100 // Change this to the number of LEDs in your strip
+#define NUM_LEDS 25 // Change this to the number of LEDs in your strip
 #define LED_PIN 18   // Choose the GPIO pin connected to the LED strip data pin
 
 CRGB leds[NUM_LEDS];
@@ -103,7 +103,6 @@ void setup() {
   uartSerial.begin(115200, SERIAL_8N1, 3, 1); // Initialize UART serial communication with VESC (RX, TX, RTS, CTS
   UART.setSerialPort(&uartSerial); // Associate the VescUart instance with the serial port for communication
 }
-float t = 0;
 
 bool fetchVescData(){
   // Serial.print("R");
@@ -112,11 +111,16 @@ bool fetchVescData(){
 
 float bootupPct = -1;
 
-float getBatteryPercentage() {
-  return ((UART.data.inpVoltage - BAT_MIN_VOLTAGE) / (BAT_MAX_VOLTAGE - BAT_MIN_VOLTAGE)) * 100;
-}
-
+int t = 0;
 float currentSpeed = -1;
+
+
+float getBatteryPercentage() {
+  t++;
+  currentSpeed = (sin(t*2*PI/360.0) * 25/2.0 + 25/2.0);
+  return (sin(t*2*PI/360.0) * 50 + 50);
+  // return ((UART.data.inpVoltage - BAT_MIN_VOLTAGE) / (BAT_MAX_VOLTAGE - BAT_MIN_VOLTAGE)) * 100;
+}
 
 float getTrip() {
   float tach = (UART.data.tachometerAbs) / (POLES * 3.0);
@@ -145,8 +149,9 @@ void processSpeedQueue(){
 }
 
 void updateState(){
+  state.batteryPct = getBatteryPercentage();
   if(fetchVescData()){
-    state.batteryPct = getBatteryPercentage();
+    
     if(bootupPct == -1){
       bootupPct = state.batteryPct;
     }
